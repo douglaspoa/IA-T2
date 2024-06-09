@@ -48,7 +48,7 @@ The keys are
   P1: 'a', 's', 'd', and 'w' to move
   P2: 'l', ';', ',' and 'p' to move
 """
-import imp
+import importlib.util
 import random
 import sys
 import time
@@ -956,6 +956,7 @@ def readCommand(argv: list[str]) -> dict[str, Any]:
   args['delay_step'] = options.delay_step
   return args
 
+
 def randomLayout(seed = None) -> mazeGenerator.Maze:
   if not seed:
     seed = random.randint(0,99999999)
@@ -964,6 +965,14 @@ def randomLayout(seed = None) -> mazeGenerator.Maze:
   return mazeGenerator.generateMaze(seed)
 
 import traceback
+
+
+def load_module(module_name, file_path):
+  spec = importlib.util.spec_from_file_location(module_name, file_path)
+  module = importlib.util.module_from_spec(spec)
+  sys.modules[module_name] = module
+  spec.loader.exec_module(module)
+  return module
 def loadAgents(isRed: bool,
                factory: str,
                textgraphics: bool,
@@ -974,7 +983,7 @@ def loadAgents(isRed: bool,
       factory += ".py"
     
     print(factory)
-    module = imp.load_source('player' + str(int(isRed)), factory)
+    module = load_module('player' + str(int(isRed)), factory)
   except (NameError, ImportError):
     print('Error: The team "' + factory + '" could not be loaded! ', file=sys.stderr)
     traceback.print_exc()
