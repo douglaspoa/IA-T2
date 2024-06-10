@@ -332,49 +332,103 @@ class InferenceAgent(CaptureAgent):
         """
         util.raiseNotDefined()
 
-
-class DummyAgent(CaptureAgent):
-  """
-  A Dummy agent to serve as an example of the necessary agent structure.
-  You should look at baselineTeam.py for more details about how to
-  create an agent as this is the bare minimum.
-  """
-
-  def registerInitialState(self, gameState: GameState) -> None:
+class OffensiveAgent(InferenceAgent):
     """
-    This method handles the initial setup of the
-    agent to populate useful fields (such as what team
-    we're on).
-
-    A distanceCalculator instance caches the maze distances
-    between each pair of positions, so your agents can use:
-    self.distancer.getDistance(p1, p2)
-
-    IMPORTANT: This method may run for at most 15 seconds.
+    An offensive agent that will immediately head for the side of the opposing
+    team and will never chase agents on its own team side. We use several
+    features and weights that we iterated to improve by viewing games and
+    results. The agent also has limits on carrying so that it will go back
+    to the other side after collecting a number of food.
     """
 
-    '''
-    Make sure you do not delete the following line. If you would like to
-    use Manhattan distances instead of maze distances in order to save
-    on initialization time, please take a look at
-    CaptureAgent.registerInitialState in captureAgents.py.
-    '''
-    CaptureAgent.registerInitialState(self, gameState)
-
-    '''
-    Your initialization code goes here, if you need any.
-    '''
+    def registerInitialState(self, gameState):
+        InferenceAgent.registerInitialState(self, gameState)
+        self.retreating = False
 
 
-  def chooseAction(self, gameState: GameState) -> Action:
-    """
-    Picks among actions randomly.
-    """
-    actions = gameState.getLegalActions(self.index)
+    def chooseAction(self, gameState):
+        scaredTimes = [gameState.getAgentState(enemy).scaredTimer for enemy in self.enemies]
+        score = self.getScore(gameState)
 
-    '''
-    You should change this in your own agent.
-    '''
+        # Choose how many food to collect before attempting to turn back based
+        # off the score of the game.
+        if score < 7:
+            carryLimit = 6
+        else:
+            carryLimit = 4
 
-    return random.choice(actions)
+        # Do not set as a retreating agent if the carrying limit is not reached
+        # or there is the minimum amount of food left.
+        if gameState.getAgentState(self.index).numCarrying < carryLimit and len(self.getFood(gameState).asList()) > 2:
+            self.retreating = False
+        else:
+            if min(scaredTimes) > 5: # Do not retreat but search for food.
+                self.retreating = False
+            else:
+                self.retreating = True
+
+        return InferenceAgent.chooseAction(self, gameState)
+
+
+    def evaluationFunction(self, gameState):
+        # Get the current position.
+        myPos = gameState.getAgentPosition(self.index)
+
+        # Get the food on the board.
+        targetFood = self.getFood(gameState).asList()
+
+        # Get the closest distance to the middle of the board.
+        distanceFromStart = min([self.distancer.getDistance(myPos, (self.midWidth, i))
+                                 for i in range(gameState.data.layout.height)
+                                 if (self.midWidth, i) in self.legalPositions])
+
+        # Getting the distances to the enemy agents that are ghosts.
+        ghostDistances = []
+        for enemy in self.enemies:
+            if not gameState.getAgentState(enemy).isPacman:
+                enemyPos = gameState.getAgentPosition(enemy)
+                if enemyPos != None:
+                    ghostDistances.append(self.distancer.getDistance(myPos, enemyPos))
+
+        # Get the minimum distance of any of the ghost distances.
+        # If it is greater than 4, we do not care about it so make it 0.
+        minGhostDistances = min(ghostDistances) if len(ghostDistances) else 0
+        if minGhostDistances >= 4:
+            minGhostDistances = 0
+
+        # Get whether there is a power pill we are chasing.
+        capsulesChasing = None
+        if self.red:
+            capsulesChasing = gameState.getBlueCapsules()
+        else:
+            capsulesChasing = gameState.getRedCapsules()
+
+        # distance and minimum distance to the capsule.
+        capsulesChasingDistances = [self.distancer.getDistance(myPos, capsule) for capsule in
+                                    capsulesChasing]
+        minCapsuleChasingDistance = min(capsulesChasingDistances) if len(capsulesChasingDistances) else 0
+
+        # Time to go back to safety, or trying to find food still.
+        if self.retreating:
+            # Want to get back to the other side at this point. Weight is on
+            # staying safe and getting back to the halfway point.
+            return - 2 * distanceFromStart + 500 * minGhostDistances
+        else:
+            # Actively looking for food.
+            foodDistances = [self.distancer.getDistance(myPos, food) for
+                             food in targetFood]
+            minFoodDistance = min(foodDistances) if len(foodDistances) else 0
+            scaredTimes = [gameState.getAgentState(enemy).scaredTimer for enemy
+                             in self.enemies]
+
+            # If they are scared be aggressive.
+            if min(scaredTimes) <= 6 and minGhostDistances < 4:
+                minGhostDistances *= -1
+
+            return 2 * self.getScore(gameState) - 100 * len(targetFood) - \
+                   3 * minFoodDistance - 10000 * len(capsulesChasing) - \
+                   5 * minCapsuleChasingDistance + 100 * minGhostDistances
+
+
+
 
