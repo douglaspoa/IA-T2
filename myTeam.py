@@ -432,3 +432,73 @@ class OffensiveAgent(InferenceAgent):
 
 
 
+class DefensiveAgent(InferenceAgent):
+    """
+    This is a defensive agent that likes to attack. If there are no enemy pacman
+    then the defensive agent will act on the offensive agent evaluation function.
+    We do not use carry limits though because the agent will retreat when the
+    other team has a pacman.
+    """
+    def registerInitialState(self, gameState):
+        InferenceAgent.registerInitialState(self, gameState)
+        self.offensing = False
+
+
+    def chooseAction(self, gameState):
+        # Check if the enemy has any pacman.
+        invaders = [a for a in self.enemies if
+                    gameState.getAgentState(a).isPacman]
+        numInvaders = len(invaders)
+
+        # Check if we have the poison active.
+        scaredTimes = [gameState.getAgentState(enemy).scaredTimer for enemy in
+                         self.enemies]
+
+        # If there are no pacman on our side or the poison pill is active we
+        # should act like an offensive agent.
+        if numInvaders == 0 or min(scaredTimes) > 8:
+            self.offensing = True
+        else:
+            self.offensing = False
+
+        return InferenceAgent.chooseAction(self, gameState)
+
+
+    def evaluationFunction(self, gameState):
+        myPos = gameState.getAgentPosition(self.index)
+
+        # Get the most likely enemy distances.
+        enemyDistances = self.enemyDistances(gameState)
+
+        # Get the pacman on our side.
+        invaders = [a for a in self.enemies if
+                    gameState.getAgentState(a).isPacman]
+
+        # Get the distance to the pacman and find the minimum.
+        pac_distances = [dist for id, dist in enemyDistances if
+                         gameState.getAgentState(id).isPacman]
+        minPacDistances = min(pac_distances) if len(pac_distances) else 0
+
+        # Find the distance to the ghosts and find the minimum.
+        ghost_distances = [dist for id, dist in enemyDistances if
+                             not gameState.getAgentState(id).isPacman]
+        minGhostDistances = min(ghost_distances) if len(ghost_distances) else 0
+
+        # Get min distance to a food.
+        targetFood = self.getFood(gameState).asList()
+        foodDistances = [self.distancer.getDistance(myPos, food) for food in
+                         targetFood]
+        minFoodDistance = min(foodDistances) if len(foodDistances) else 0
+
+        # Get min distance to a power pill.
+        capsules = self.getCapsulesYouAreDefending(gameState)
+        capsulesDistances = [self.getMazeDistance(myPos, capsule) for capsule in
+                             capsules]
+        minCapsuleDistance = min(capsulesDistances) if len(capsulesDistances) else 0
+
+
+        if self.offensing == False:
+            return -999999 * len(invaders) - 10 * minPacDistances - minCapsuleDistance
+        else:
+            return 2 * self.getScore(gameState) - 100 * len(targetFood) - \
+                   3 * minFoodDistance + minGhostDistances
